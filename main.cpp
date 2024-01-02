@@ -10,7 +10,7 @@ int main(int argc, char* argv) {
     CommuniteThreader server(6688);
 
     server.RegistActionFunc(
-        "someAction", [](boost::asio::ip::tcp::socket* socket,
+        "Action", [](boost::asio::ip::tcp::socket* socket,
                          std::vector<std::string> args) {
           // Handle the action here
           std::cout << "Received someAction: ";
@@ -32,14 +32,12 @@ int main(int argc, char* argv) {
 
     server.RegistActionFunc("Quit", [&](boost::asio::ip::tcp::socket* socket,
                                         std::vector<std::string> args) {
-      exit(0);
+      server.Quit();
       return 0;
     });
     // Add more action handlers as needed...
 
     server.RunServer();
-    system("pause");
-    server.Quit();  // Optional: use this to gracefully shutdown the server
   } catch (exception& e) {
     cout << e.what() << endl;
   }

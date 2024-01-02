@@ -19,7 +19,8 @@ public:
     using CallBackFunc = std::function<long(boost::asio::ip::tcp::socket*, std::vector<std::string>)>;
 
     CommuniteThreader(unsigned int uPort)
-        : m_uPort(uPort), m_ioService(), m_acceptor(m_ioService), m_socket(m_ioService)
+        : m_uPort(uPort), m_ioService(), m_acceptor(m_ioService), m_socket(m_ioService),
+          m_bQuitWaitFlag(true)
     {
     }
 
@@ -28,39 +29,46 @@ public:
         m_funcReg[strActionName] = func;
     }
 
-    void Quit(unsigned int timeout = 5000 /*ms*/)
-    {
-        m_ioService.stop();
-        m_ioThread.join();
+    void Quit(unsigned int timeout) { 
+        m_bQuitWaitFlag = false;
     }
 
-    void CloseServer()
-    {
-        m_socket.close();
-        m_acceptor.close();
-        m_ioService.stop();
-        m_ioThread.join();
-    }
-
-    void RunServer()
-    {
-        try {
+    void RunServer() {
+        // 启动一个新线程
+        std::thread cmdServiceThread([this] {
+          try {
             m_acceptor.open(boost::asio::ip::tcp::v4());
-            m_acceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
-            m_acceptor.bind(boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), m_uPort));
+            m_acceptor.set_option(
+                boost::asio::ip::tcp::acceptor::reuse_address(true));
+            m_acceptor.bind(boost::asio::ip::tcp::endpoint(
+                boost::asio::ip::tcp::v4(), m_uPort));
             m_acceptor.listen();
 
             std::cout << "Server started on port " << m_uPort << std::endl;
 
             m_ioThread = std::thread([this]() {
               std::cout << __LINE__ << std::endl;
-                m_ioService.run();
+              m_ioService.run();
             });
 
             StartAccept();
-        } catch (const std::exception& e) {
+          } catch (const std::exception& e) {
             std::cerr << "Exception in RunServer: " << e.what() << std::endl;
-        }
+          }
+
+          // wait for quit
+          while (true) {
+            if (!m_bQuitWaitFlag) {
+              break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+          }
+          m_socket.close();
+          m_acceptor.close();
+          m_ioService.stop();
+        });
+        cmdServiceThread.join();
+        m_ioThread.join();
     }
 
 private:
@@ -101,9 +109,9 @@ private:
             });
     }
 
+    // 使用 find 函数和 substr 函数拆分字符串
     static std::vector<std::string> SplitCMDString(std::string dataClone,
                                                    std::string delimiter) {
-        // 使用 find 函数和 substr 函数拆分字符串
         std::vector<std::string> cmdArgParseByEndFlag;
         std::string cmdArgOnce;
         size_t pos = 0;
@@ -158,10 +166,13 @@ private:
         }
 
         // Continue reading
-        StartRead();
+        if (!m_ioService.stopped() && m_bQuitWaitFlag) {
+            StartRead();
+        }
     }
 
 private:
+    bool                                m_bQuitWaitFlag;
     unsigned int                        m_uPort;
     boost::asio::io_service             m_ioService;
     boost::asio::ip::tcp::acceptor      m_acceptor;
