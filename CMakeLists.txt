@@ -1,5 +1,5 @@
 cmake_minimum_required( VERSION 3.5.1)
-project(BOOST)
+project(CommuThreaderDemo)
 
 set(CMAKE_PREFIX_PATH D:/boost-1.83.0/boost-1.83.0)
 
@@ -11,7 +11,5 @@ set( Boost_USE_MULTITHREADED      ON )
 set( Boost_USE_STATIC_RUNTIME     OFF )
 set( BOOST_ALL_DYN_LINK           ON ) # force dynamic linking for all libraries
 
-# add_executable( ${PROJECT_NAME} client.cpp )
-# add_executable( ${PROJECT_NAME} client_async.cpp )
-add_executable( ${PROJECT_NAME} HelloThreader.cpp )
+add_executable( ${PROJECT_NAME} CommuniteThreader.hpp main.cpp)
 target_link_libraries( ${PROJECT_NAME} ${Boost_LIBRARIES})

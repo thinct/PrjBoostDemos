@@ -6,12 +6,13 @@
 #include <mutex>
 #include <condition_variable>
 #include <vector>
+#include <map>
 
-#define CMD_SPLIT_OPR          ";"
-#define CMD_SPLIT_LISTOPR      ","
-#define CMD_SPLIT_WITH_END_OPR "\n"
+#define CMD_SPLIT_OPR          "-|-"
+#define CMD_SPLIT_LISTOPR      "-;-"
+#define CMD_SPLIT_WITH_END_OPR "-$-"
 
-#define QDbgLn std::cout << __LINE__ << std::endl
+#define QDbgLn(_SENTENCE_) std::cout << __LINE__ << "\t" << _SENTENCE_ << std::endl
 
 class CommuniteThreader {
 public:
@@ -52,6 +53,7 @@ public:
             std::cout << "Server started on port " << m_uPort << std::endl;
 
             m_ioThread = std::thread([this]() {
+              std::cout << __LINE__ << std::endl;
                 m_ioService.run();
             });
 
@@ -99,53 +101,59 @@ private:
             });
     }
 
+    static std::vector<std::string> SplitCMDString(std::string dataClone,
+                                                   std::string delimiter) {
+        // 使用 find 函数和 substr 函数拆分字符串
+        std::vector<std::string> cmdArgParseByEndFlag;
+        std::string cmdArgOnce;
+        size_t pos = 0;
+        while ((pos = dataClone.find(delimiter)) != std::string::npos) {
+            cmdArgOnce = dataClone.substr(0, pos);
+            cmdArgParseByEndFlag.push_back(cmdArgOnce);
+            dataClone.erase(0, pos + delimiter.length());
+        }
+        if (!dataClone.empty()) {
+            cmdArgParseByEndFlag.push_back(dataClone);
+        }
+        return cmdArgParseByEndFlag;
+    }
+
     void HandleRead(size_t bytes_transferred)
     {
         std::istream is(&m_receiveBuffer);
         std::string data;
         std::getline(is, data);
+        QDbgLn(data);
 
-        std::vector<std::string> cmdArgParseByEndFlag;
-        std::istringstream ss(data);
-        std::string cmdArgOnce;
-        while (std::getline(ss, cmdArgOnce, CMD_SPLIT_WITH_END_OPR[0])) {
-            cmdArgParseByEndFlag.push_back(cmdArgOnce);
-        }
+        // 使用 find 函数和 substr 函数拆分字符串
+        std::vector<std::string> cmdArgParseByEndFlag =
+            SplitCMDString(data, CMD_SPLIT_WITH_END_OPR);
+        QDbgLn(cmdArgParseByEndFlag.size());
 
         for (const std::string& cmdArgOnce : cmdArgParseByEndFlag) {
-            QDbgLn << cmdArgOnce;
-            std::vector<std::string> cmdArgSet;
-            std::istringstream ssSet(cmdArgOnce);
-            std::string cmdArgItem;
-            while (std::getline(ssSet, cmdArgItem, CMD_SPLIT_LISTOPR[0])) {
-                cmdArgSet.push_back(cmdArgItem);
-            }
+            QDbgLn(cmdArgOnce);
+            std::vector<std::string> cmdArgSet =
+                SplitCMDString(cmdArgOnce, CMD_SPLIT_LISTOPR);
+            QDbgLn(cmdArgSet.size());
 
             for (const std::string& cmdArgItem : cmdArgSet) {
-                std::vector<std::string> cmdArgs;
-                std::istringstream ssArgs(cmdArgItem);
-                std::string cmdArg;
-                while (std::getline(ssArgs, cmdArg, CMD_SPLIT_OPR[0])) {
-                    cmdArgs.push_back(cmdArg);
+              std::vector<std::string> cmdArgs =
+                  SplitCMDString(cmdArgItem, CMD_SPLIT_OPR);
+              QDbgLn(cmdArgs.size());
+
+              if (!cmdArgs.empty()) {
+                std::string strCmd = cmdArgs.front();
+                cmdArgs.erase(cmdArgs.begin());
+                QDbgLn("m_funcReg..." << strCmd << ": len=" << cmdArgs.size());
+                if (m_funcReg.find(strCmd) != m_funcReg.end()) {
+                  // Only the synchronous mode is considered
+                  m_funcReg[strCmd](&m_socket, cmdArgs);
+                } else {
+                  QDbgLn("unknown func register...");
                 }
 
-                if (!cmdArgs.empty()) {
-                    std::string strCmd = cmdArgs.front();
-                    QDbgLn << "m_funcReg..." << strCmd << ":";
-                    cmdArgs.erase(cmdArgs.begin());
-                    for (const std::string& arg : cmdArgs) {
-                        QDbgLn << arg;
-                    }
-
-                    if (m_funcReg.find(strCmd) != m_funcReg.end()) {
-                        // Only the synchronous mode is considered
-                        m_funcReg[strCmd](&m_socket, cmdArgs);
-                    } else {
-                        QDbgLn << "unknown func register...";
-                    }
-
-                    QDbgLn << "m_funcReg...";
-                }
+                QDbgLn("m_funcReg...");
+              }
             }
         }
 
@@ -154,40 +162,11 @@ private:
     }
 
 private:
-    unsigned int m_uPort;
-    boost::asio::io_service m_ioService;
-    boost::asio::ip::tcp::acceptor m_acceptor;
-    boost::asio::ip::tcp::socket m_socket;
-    std::thread m_ioThread;
-    boost::asio::streambuf m_receiveBuffer;
+    unsigned int                        m_uPort;
+    boost::asio::io_service             m_ioService;
+    boost::asio::ip::tcp::acceptor      m_acceptor;
+    boost::asio::ip::tcp::socket        m_socket;
+    std::thread                         m_ioThread;
+    boost::asio::streambuf              m_receiveBuffer;
     std::map<std::string, CallBackFunc> m_funcReg;
 };
-
-int main()
-{
-    CommuniteThreader server(6688);
-
-    server.RegistActionFunc("someAction", [](boost::asio::ip::tcp::socket* socket, std::vector<std::string> args) {
-        // Handle the action here
-        std::cout << "Received someAction: ";
-        for (const std::string& arg : args) {
-            std::cout << arg << ", ";
-        }
-        std::cout << std::endl;
-
-        // Example: Echo back the received data
-        std::string response = "Server received: ";
-        for (const std::string& arg : args) {
-            response += arg + CMD_SPLIT_OPR;
-        }
-        response += CMD_SPLIT_WITH_END_OPR;
-        boost::asio::write(*socket, boost::asio::buffer(response));
-    });
-
-    // Add more action handlers as needed...
-
-    server.RunServer();
-    server.Quit(); // Optional: use this to gracefully shutdown the server
-
-    return 0;
-}
